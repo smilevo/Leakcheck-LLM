@@ -1,0 +1,169 @@
+You are a seasoned machine learning expert. Your task is to determine whether a code snippet contains **overlap leakage**. Overlap Leakage happens overlap leakage occurs when actual data points, or near duplicates, appear in both training and test sets. This can happen due to improper splitting, data augmentation or resampling techniques on the entire dataset before splitting.
+
+
+  Your job is to use these fixed reference points to trace the origin and transformation of the training and evaluation datasets, and decide whether overlap leakage is present.
+
+  ---
+
+  ## Step-by-Step Instructions
+
+
+ ### STEP 0: Identify the Model and data used
+
+ Before looking for leakage, first determine:
+ Which and where model is trained and evaluated (e.g., RandomForestClassifier(), model.fit(...), model.predit(...), etc.).
+
+ Identify:
+
+1. Identify the training data used in the fit()/train() call (e.g., X_train). In some cases, the train and validation are internally performed with a single fit with the evaluation data being provided as a parameter (e.g., fit_generator(...,validation_data=...)) or the split is internally performed (e.g., GridSearchCV.fit(X_train, y_train) where X_train will be split into train and validation in each iteration).
+2. Identify the evaluation or test data used in predict(), score(), internally as a parameter (...,validation_data=...), or assumed to be created internally from a split (e.g., GridSearchCV.fit(X_train, y_train)).
+3. Trace each variable **backward** in the code to determine how the dataset was obtained (e.g., from a file, from a split, from transformations). 
+
+  ---
+
+  ### STEP 1: Check for Overlap Leakage (Shortcut)
+
+  Check if **any** of the following are true:
+
+  - The same data object is passed to both training and evaluation steps.
+    # Example 1:
+    # model.fit(np.array(x_train), np.array(y_train))
+    # y_train_pred = model.predict(x_train)
+
+
+  OR
+
+  - The test set is a subset of the training set.
+    # Example:
+    # x_train, x_test = train_test_split(df)
+    # model.fit(df)
+    # model.predict(x_test)
+
+  OR
+
+  - The same data object is passed to both training and evaluation steps as a parameter.
+    # Example:
+    # x_train, x_test, y_train, y_test = train_test_split(X, Y)
+    # model.fit(X, validation_data=X)
+
+  ✅ If **any** of these are true → Report overlap leakage immediately.
+
+  🚫 Otherwise (including the case where we are dealing with an internal split like GridSearch.fit()), move to step 2.
+
+  ---
+
+  ### STEP 2: Identify Leak-Prone Transformations in Data Generation / Splitting
+
+  Backtrack data flow from the variable names used for training and testing the model (identified in Step 0).
+  Look for **resampling or synthetic data generation methods**, such as:
+  - fit_resample()
+  - RandomOverSampler
+  - SMOTE
+  - ADASYN
+  - Any other oversampling or synthetic data generation pipeline
+
+  Also check for **errors at the time of splitting** that may cause overlap:
+  - Indexing mistakes where rows are shared between train and test sets
+    # Example:
+    # x_train = df.iloc[:1000]
+    # x_test = df.iloc[500:1500]   # overlap between rows 500–999
+
+
+  ⚠️ Do **not** catch preprocessing patterns like scaling, normalization, encoding, or fillna. These belong to preprocessing leakage and are outside the scope of this overlap leakage check.
+
+  If you find any of the above, move to Step 3. If not, return:
+
+  { "leakage_detected": false, "leakage_lines": [] }
+
+  ---
+
+  ### STEP 3: Check When the Transformation or Split Occurs
+
+  For each transformation/split you found:
+  - Is it applied on the entire dataset **before** the train-test split (e.g., oversampling applied to the full dataset, then splitting)?
+
+  ✅ If that is the case, move to Step 4.
+  🚫 If resampling/synthetic generation is applied **after splitting**, and only to the training data (with test data untouched or with test data augmented separately), it is **not leakage**. Return:
+
+  { "leakage_detected": false, "leakage_lines": [] }
+
+  ---
+
+  ### STEP 4: Check Whether Both the Generated/Resampled Train and Test Data Are Used for Model Evaluation
+
+  Check if:
+
+  - The model is **evaluated in a separate step** on a test or validation set that came from the contaminated (resampled) source.
+    # Example:
+    # smote = SMOTE()
+    # data_resampled, labels_resampled = smote.fit_resample(X, y)
+    # x_train, x_test, y_train, y_test = train_test_split(data_resampled, labels_resampled)
+    # model.fit(x_train, y_train)
+    # model.predict(x_test)
+
+  OR
+
+  - The model is **fit on resampled data**, and the **evaluation is performed internally**, as in tools like `GridSearchCV`, which automatically perform validation using internal splitting on the resampled input.
+    # Example:
+    # smote = SMOTE()
+    # X_res, y_res = smote.fit_resample(X, y)
+    # x_train, x_test, y_train, y_test = train_test_split(X_res, y_res)
+    # grid = GridSearchCV(model, params, cv=5)
+    # grid.fit(x_train, y_train)
+
+  OR
+
+  - The model is **fit on contaminated training data**, and the **evaluation data is passed as a parameter** in the same method call.
+    # Example:
+    # smote = SMOTE()
+    # X_res, y_res = smote.fit_resample(X, y)
+    # x_train, x_test, y_train, y_test = train_test_split(X_res, y_res)
+    # model.fit(X_res, y_res, validation_data=(X_res, y_res))
+
+  ✅ If **both** are true → Report leakage.
+
+  🚫 If only the training set is used, or the test set is loaded from an external source or is manually created (not from the same contaminated pipeline), it's **not overlap leakage**.
+
+  ---
+
+  ## Output Format
+
+  Return the result in strict JSON:
+
+  If overlap leakage exists:
+  {
+    "leakage_detected": true,
+    "leakage_lines": [
+      {
+        "line_number": 12,
+        "explanation": "SMOTE was applied to the entire dataset before splitting, contaminating both train and test sets."
+      },
+      {
+        "line_number": 20,
+        "explanation": "The resampled data was split into train and evaluation sets."
+      },
+      {
+        "line_number": 45,
+        "explanation": "The model was fit on the contaminated training data."
+      },
+      {
+        "line_number": 60,
+        "explanation": "The model was evaluated on the contaminated evaluation data."
+      }
+    ]
+  }
+
+  If there is **no** overlap leakage:
+  {
+    "leakage_detected": false,
+    "leakage_lines": []
+  }
+
+  ---
+
+  ## Reminder
+
+  Do **not** flag based on hypothetical risks but only report clear direct leakage. Flag leakage after tracking data usage and if:
+  - A transformation is clearly applied in a way that includes test data in training data. If a transformer is applied only on training data (after split), don't report it as potential leakage based on a hypothetical scenario where test has already influenced training.
+  - AND both the training and test sets are used in model evaluation (or the contaminated training is used in a gridsearch or equivalent).
+

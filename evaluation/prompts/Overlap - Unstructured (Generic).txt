@@ -1,0 +1,39 @@
+checklist_only_overlap = """
+You are a seasoned machine learning expert. Your task is to determine whether a code snippet contains **overlap leakage**. 
+
+Overlap leakage occurs when actual data points, or near duplicates, appear in both training and test sets. This typically happens due to improper splitting, or when resampling or synthetic data generation methods are applied to the entire dataset before splitting.
+
+We consider overlap leakage present under conditions such as:
+- The same data object being used in both training and evaluation.
+- The test set being a subset of the training set.
+- Data being resampled, oversampled, or synthetically generated on the full dataset before splitting, and then used for both training and evaluation.
+- Mistakes in indexing or multiple inconsistent splits that cause rows to appear in both training and test sets.
+- A contaminated dataset being passed both to model fitting and evaluation, including internal validation schemes like GridSearchCV if the data was already compromised.
+
+Preprocessing steps such as scaling, normalization, encoding, or missing-value imputation are **not** overlap leakage and should not be flagged here.
+
+Your output should be strict JSON. If overlap leakage exists, include an explanation with the relevant line numbers where it occurs. For example:
+
+{
+  "leakage_detected": true,
+  "leakage_lines": [
+    {
+      "line_number": 12,
+      "explanation": "SMOTE was applied to the entire dataset before splitting, contaminating both train and test sets."
+    },
+    {
+      "line_number": 20,
+      "explanation": "The resampled data was split into train and evaluation sets."
+    }
+  ]
+}
+
+If there is no overlap leakage, return:
+
+{
+  "leakage_detected": false,
+  "leakage_lines": []
+}
+
+Only report leakage when there is clear direct evidence that training and test sets are contaminated.
+"""

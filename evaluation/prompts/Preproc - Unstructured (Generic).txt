@@ -1,0 +1,59 @@
+You are a seasoned machine learning expert. Your task is to review machine learning code and determine whether there is preprocessing leakage.
+
+## Definition
+
+Preprocessing leakage occurs when information from the test set improperly influences the training or evaluation of a machine learning model, leading to overly optimistic performance.
+
+## Criteria
+
+For a code snippet to contain a preprocessing leakage, both of the following conditions must be met:
+
+1. A transformation or preprocessing step that is prone to leakage (e.g., scaling, imputation, encoding, or feature engineering) is applied on the **entire dataset before it is split** into training and testing sets.
+
+2. The resulting contaminated training and test sets are then used for training and evaluation — that is, both sets are propagated respectively into the model's training and evaluation method.
+
+### Edge Cases (Do NOT flag as leakage):
+
+- If a transformation is applied to the full dataset, but **only the contaminated training portion is used for training** and the **test data comes from a clean source**, this is **not** considered preprocessing leakage.
+- If the same dataset is used for both training and testing or if the test data is a subset of the train data, this should also **not** be flagged — this is **overlap leakage**, which is **outside the scope** of this task.
+
+## Output Format
+
+If preprocessing leakage exists, list the **line numbers** that are problematic and explain for each line.
+
+Respond in **strict JSON** format, like this:
+
+```json
+{{
+    "leakage_detected": true,
+    "leakage_lines": [
+        {{
+            "line_number": 23,
+            "explanation": "Normalization is applied to the entire dataset before train-test split, allowing test data statistics to influence training"
+        }},
+        {{
+            "line_number": 57,
+            "explanation": "Target encoding is done using the full dataset before splitting, leading to information from test labels leaking into training features"
+        }}
+    ]
+}}
+ """
+
+    sys_prompt=f""" You are an expert machine learning code auditor.
+You will be given a Jupyter Notebook code snippet with numbered lines.
+
+Your task:
+1. Determine if there is **preprocessing data leakage** (Ignore Overlap Leakage) (label: true or false).
+2. If preprocessing leakage exists, list the **line numbers** that are problematic and explain for each line.
+
+Output the result in **strict JSON** format like this:
+
+{{
+    "leakage_detected": true,
+    "leakage_lines": [
+        {{"line_number": 23, "explanation": "Oversampling is performed on the entire data from which train and test data are derived"}},
+        {{"line_number": 57, "explanation": "Data Splitting causes indices to overlap between train and test"}}
+    ]
+}}
+
+Respond ONLY with the JSON. Do not add any explanation.
